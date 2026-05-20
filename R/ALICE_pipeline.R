@@ -208,6 +208,18 @@ ALICE_pipeline <- function(TCRgrObject, Q_val = 6.27, cores = 1, thres_counts = 
   DT[, VJ_n_total := .N, .(bestVGene, bestJGene)]
   #message('filtering sequences by number of neighbors')
   DT <- DT[D >= N_neighbors_thres][, ind := 1:.N, ]
+
+  if (nrow(DT) == 0) {
+    DT[, c("p_val", "log_p_val", "p_adjust") := character()]
+    DT <- subset(DT, select = -c(ind))
+    setnames(DT, c('D', 'VJ_n_total', 'Pgen', 'p_val', 'p_adjust', 'log_p_val'),
+           c('ALICE.D', 'ALICE.VJ_n_total', 'ALICE.Pgen', 'ALICE.p_value',
+             'ALICE.p_adjust', 'ALICE.log_p_value'))
+
+    clonoset(TCRgrObject) <- DT
+    return(TCRgrObject)
+  }
+
   stopifnot(nrow(DT) != 0)
   #message('generating all possible sequences with one mismatch')
   DT_with_mismatch <- DT[, .(bestVGene, bestJGene,
@@ -292,9 +304,16 @@ pval_with_abundance <- function(clonoset, by_counts = TRUE, by_log2_counts = TRU
   all_numbers_of_neighbors <- unique(clonoset[,ALICE.D])
   all_numbers_of_neighbors <- all_numbers_of_neighbors[all_numbers_of_neighbors != 0]
 
-  clonoset[ALICE.D == 0, ALICE.pval_with_abundance_log2_counts := 1]
-  clonoset[ALICE.D == 0, ALICE.pval_with_abundance_counts := 1]
+  if (by_log2_counts) {
+    clonoset[, c("ALICE.pval_with_abundance_log2_counts", "ALICE.log_pval_with_abundance_log2_counts") := NA_real_]
+    clonoset[ALICE.D == 0, ALICE.pval_with_abundance_log2_counts := 1]
+  }
 
+  if(by_counts) {
+    clonoset[, c("ALICE.pval_with_abundance_counts", "ALICE.log_pval_with_abundance_counts") := NA_real_]
+    clonoset[ALICE.D == 0, ALICE.pval_with_abundance_counts := 1]
+  }
+  
   for(nb in sort(all_numbers_of_neighbors)){
     # log2
     if(by_log2_counts){
