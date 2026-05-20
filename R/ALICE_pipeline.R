@@ -22,11 +22,6 @@
 #' @importFrom data.table :=
 #' @importFrom data.table rbindlist
 #' @importFrom data.table fread
-#' @importFrom foreach %dopar%
-#' @importFrom foreach foreach
-#' @importFrom parallel makeCluster
-#' @importFrom parallel stopCluster
-#' @importFrom doParallel registerDoParallel
 NULL
 "OLGAVJ_MOUSE_TRB"
 "OLGAVJ_HUMAN_TRB"
@@ -79,52 +74,42 @@ parallel_wrapper_beta <- function(DT, cores = 1, chain = "mouseTRB",
   # add ind column for sequence combining
   if (!("ind" %in% colnames(DT))) DT[, ind := 1:.N, ]
 
-  tmp_names <- paste0("tmp", 1:cores, ".tsv")
-  tmp_names_out <- paste0("tmp_out", 1:cores, ".tsv")
-  path <- tempdir()
-  path <- paste0(path, '/')
+  path <- paste0(tempdir(), '/')
+  tmp_in <- paste0(path, "tmp.tsv")
+  tmp_out <- paste0(path, "tmp_out.tsv")
 
-  for (f in c(paste0(path, tmp_names), paste0(path,tmp_names_out))) if (file.exists(f)) file.remove(f)
+  for (f in c(tmp_in, tmp_out)) if (file.exists(f)) file.remove(f)
 
-  DTt <- split(DT, sort((1:nrow(DT) - 1) %% cores + 1))
-
-  for (i in 1:length(DTt)) {
-    write.table(as.data.frame(DTt[[i]][, .(cdr3aa, bestVGene, bestJGene, ind), ]),
-                quote = F, row.names = F, sep = "\t", file = paste0(path, tmp_names[i]), col.names = F
-    )
-  }
-
+  write.table(as.data.frame(DT[, .(cdr3aa, bestVGene, bestJGene, ind), ]),
+              quote = F, row.names = F, sep = "\t", file = tmp_in, col.names = F
+  )
   if(model != '-'){
     chain=model
   }
 
   if(stats == 'OLGA'){
-    commands <- paste0(
+    command <- paste0(
       "olga-compute_pgen --", chain,
+      " --fast_pgen",
       " --display_off --time_updates_off --seq_in 0 --v_in 1 --j_in 2 -d 'tab' -i ",
-      path, "tmp", 1:cores, ".tsv -o ", path, "tmp_out", 1:cores, ".tsv"
+      tmp_in, " -o ", tmp_out
     )
   } else if (stats == 'SONIA'){
-    commands <- paste0('sonia-evaluate --', chain,
-                       " --seq_in 0 --v_in 1 --j_in 2 -d 'tab' --ppost -i ", path, "tmp",
-                       1:cores, ".tsv -o ", path, "tmp_out", 1:cores, ".tsv")
+    command <- paste0(
+      "sonia-evaluate --", chain,
+      " --fast_pgen", " --single_process",
+      " --seq_in 0 --v_in 1 --j_in 2 -d 'tab' --pgen -i ",
+      tmp_in, " -o ", tmp_out
+    )
   }
 
-  cl <- parallel::makeCluster(cores)
-  doParallel::registerDoParallel(cl)
-  foreach(i=1:cores) %dopar% {
-    system(commands[i], intern=TRUE)
-  }
-  parallel::stopCluster(cl)
-
-  stats_output <- rbindlist(lapply(paste0(path, tmp_names_out), fread))
+  system(command, intern = TRUE)
+  stats_output <- fread(tmp_out)
 
   if(stats == 'OLGA'){
     DT$Pgen <- stats_output$V2
   }else if (stats == 'SONIA'){
     DT$Pgen <- stats_output$Pgen
-    DT$Q <- stats_output$Q
-    DT$Ppost <- stats_output$Ppost
   }
   DT
 }
@@ -182,7 +167,7 @@ ALICE_pipeline <- function(TCRgrObject, Q_val = 6.27, cores = 1, thres_counts = 
   # TODO other requirements
 
   DT <- clonoset(TCRgrObject)
-  message("checking for unproductive sequences if it hasn't been made earlier")
+  # message("checking for unproductive sequences if it hasn't been made earlier")
   DT <- DT[!grepl(cdr3aa, pattern = "*", fixed = T) & ((nchar(cdr3nt) %% 3) == 0)]
 
   model_marginals <- list('mouseTRB'=OLGAVJ_MOUSE_TRB,
@@ -193,78 +178,68 @@ ALICE_pipeline <- function(TCRgrObject, Q_val = 6.27, cores = 1, thres_counts = 
                       'humanTRB'=27,
                       'humanTRA'=27)
 
-  message('model selection')
+  # message('model selection')
   if(model == '-'){
     OLGAVJ <- model_marginals[chain][[1]]
     Q_val <- model_Q_val[chain][[1]]
   } else {
-    path_to_model <- unlist(base::strsplit(model, ' '))[2]
-    params <- read.table(paste0(path_to_model, 'model_params.txt'))
-    V_names <- sapply(strsplit(params$V1[grep('TRBV', params$V1)], ";"), `[`, 1)
-    V_names <- sub('%TRBV', 'TRBV', V_names)
-    J_names <- sapply(strsplit(params$V1[grep('TRBJ', params$V1)], ";"), `[`, 1)
-    J_names <- sub('%TRBJ', 'TRBJ', J_names)
-    marginals <- read.table(paste0(path_to_model, 'model_marginals.txt'))
-    V_prob <- as.numeric(unlist(strsplit(substring(marginals$V1[3], 2, nchar(marginals$V1[3])), ',')))
-    J_prob <- as.numeric(unlist(strsplit(substring(marginals$V1[6], 2, nchar(marginals$V1[6])), ',')))
-    OLGAVJ <- V_prob %*% t(J_prob)
-    rownames(OLGAVJ) <- V_names
-    colnames(OLGAVJ) <- J_names
+    # path_to_model <- unlist(base::strsplit(model, ' '))[2]
+    # params <- read.table(paste0(path_to_model, 'model_params.txt'))
+    # V_names <- sapply(strsplit(params$V1[grep('TRBV', params$V1)], ";"), `[`, 1)
+    # V_names <- sub('%TRBV', 'TRBV', V_names)
+    # J_names <- sapply(strsplit(params$V1[grep('TRBJ', params$V1)], ";"), `[`, 1)
+    # J_names <- sub('%TRBJ', 'TRBJ', J_names)
+    # marginals <- read.table(paste0(path_to_model, 'model_marginals.txt'))
+    # V_prob <- as.numeric(unlist(strsplit(substring(marginals$V1[3], 2, nchar(marginals$V1[3])), ',')))
+    # J_prob <- as.numeric(unlist(strsplit(substring(marginals$V1[6], 2, nchar(marginals$V1[6])), ',')))
+    # OLGAVJ <- V_prob %*% t(J_prob)
+    # rownames(OLGAVJ) <- V_names
+    # colnames(OLGAVJ) <- J_names
   }
 
-  message('filtering sequences by number of counts')
+  #message('filtering sequences by number of counts')
   DT <- DT[count >= thres_counts,]
   stopifnot(nrow(DT) != 0)
-  message('filtering V and J for present in model')
-  DT <- DT[bestVGene %in% rownames(OLGAVJ) & bestJGene %in% colnames(OLGAVJ)]
-  stopifnot(nrow(DT) != 0)
-  message('calculating number of neighbors for every sequence')
+  #message('filtering V and J for present in model')
+  #DT <- DT[bestVGene %in% rownames(OLGAVJ) & bestJGene %in% colnames(OLGAVJ)]
+  #stopifnot(nrow(DT) != 0)
+  #message('calculating number of neighbors for every sequence')
   DT <- calculate_nb_of_neighbors(DT)
   DT[, VJ_n_total := .N, .(bestVGene, bestJGene)]
-  message('filtering sequences by number of neighbors')
+  #message('filtering sequences by number of neighbors')
   DT <- DT[D >= N_neighbors_thres][, ind := 1:.N, ]
   stopifnot(nrow(DT) != 0)
-  message('generating all possible sequences with one mismatch')
+  #message('generating all possible sequences with one mismatch')
   DT_with_mismatch <- DT[, .(bestVGene, bestJGene,
                              cdr3aa = all_other_variants_one_mismatch_regexp(cdr3aa)
   ), ind]
-  message('generation probability calculation')
-  DT <- parallel_wrapper_beta(DT = DT, cores = cores, chain = chain,
-                              stats = stats, model=model)
+  #message('generation probability calculation')
+  
+  if ("Pgen" %notin% colnames(DT)) {
+    DT <- parallel_wrapper_beta(DT = DT, cores = cores, chain = chain,
+                                stats = stats, model=model)
+  }
+
   DT_with_mismatch <- parallel_wrapper_beta(DT = DT_with_mismatch, cores = cores,
                                             chain = chain,  stats = stats, model=model)
-  if(stats == 'OLGA'){
-    # Pgen - probability to be generated computed by OLGA
-    # Pgen_sum - sum of Pgen of all sequences similar to the given with one mismatch
-    DT$Pgen_sum <- DT_with_mismatch[, sum(Pgen), ind]$V1
-    # Pgen_sum_corr - Pgen_sum without probabilities of the main sequence
-    # I removed the correction y VJ combination from Pogorelyy's script because
-    # olga canculates conditional probability by V and J segments.
-    DT[, Pgen_sum_corr := Pgen_sum - Pgen * (nchar(cdr3aa) - 2), ]
-    DT[, p_val := ppois(D-1,
-                        # normalize for conditioning on observing a variant
-                        lambda = (Q_val * VJ_n_total * Pgen_sum_corr) / (1 - exp(-(Q_val * VJ_n_total * Pgen_sum_corr))),
-                        lower.tail = F)]
-    # p values are toooo small
-    DT[, log_p_val := ppois(D-1,
-                        # normalize for conditioning on observing a variant
-                        lambda = (Q_val * VJ_n_total * Pgen_sum_corr) / (1 - exp(-(Q_val * VJ_n_total * Pgen_sum_corr))),
-                        lower.tail = F,
-                        log.p = TRUE)]
-  } else if (stats == 'SONIA'){
-    DT$Ppost_sum <- DT_with_mismatch[, sum(Ppost), ind]$V1
-    DT[, Ppost_sum_corr := Ppost_sum - Ppost * (nchar(cdr3aa) - 2), ]
-    DT[, p_val := ppois(D-1,
-                        # normalize for conditioning on observing a variant
-                        lambda =  (VJ_n_total * Ppost_sum_corr) / (1 - exp(-(VJ_n_total * Ppost_sum_corr))),
-                        lower.tail = F)]
-    # p values are toooo small
-    DT[, log_p_val := ppois(D-1,
-                        # normalize for conditioning on observing a variant
-                        lambda =  (VJ_n_total * Ppost_sum_corr) / (1 - exp(-(VJ_n_total * Ppost_sum_corr))),
-                        lower.tail = F,
-                        log.p = TRUE)]
-  }
+
+  # Pgen - probability to be generated computed by OLGA
+  # Pgen_sum - sum of Pgen of all sequences similar to the given with one mismatch
+  DT$Pgen_sum <- DT_with_mismatch[, sum(Pgen), ind]$V1
+  # Pgen_sum_corr - Pgen_sum without probabilities of the main sequence
+  # I removed the correction y VJ combination from Pogorelyy's script because
+  # olga canculates conditional probability by V and J segments.
+  DT[, Pgen_sum_corr := Pgen_sum - Pgen * (nchar(cdr3aa) - 2), ]
+  DT[, p_val := ppois(D-1,
+                      # normalize for conditioning on observing a variant
+                      lambda = (Q_val * VJ_n_total * Pgen_sum_corr) / (1 - exp(-(Q_val * VJ_n_total * Pgen_sum_corr))),
+                      lower.tail = F)]
+  # p values are toooo small
+  DT[, log_p_val := ppois(D-1,
+                      # normalize for conditioning on observing a variant
+                      lambda = (Q_val * VJ_n_total * Pgen_sum_corr) / (1 - exp(-(Q_val * VJ_n_total * Pgen_sum_corr))),
+                      lower.tail = F,
+                      log.p = TRUE)]
 
   DT[is.na(p_val), 'p_val'] <- 1
   DT[is.na(log_p_val), 'log_p_val'] <- 0
