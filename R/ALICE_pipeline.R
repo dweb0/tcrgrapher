@@ -212,8 +212,8 @@ ALICE_pipeline <- function(TCRgrObject, Q_val = 6.27, cores = 1, thres_counts = 
   if (nrow(DT) == 0) {
     DT[, c("p_val", "log_p_val", "p_adjust") := character()]
     DT <- subset(DT, select = -c(ind))
-    setnames(DT, c('D', 'VJ_n_total', 'Pgen', 'p_val', 'p_adjust', 'log_p_val'),
-           c('ALICE.D', 'ALICE.VJ_n_total', 'ALICE.Pgen', 'ALICE.p_value',
+    setnames(DT, c('D', 'VJ_n_total', 'p_val', 'p_adjust', 'log_p_val'),
+           c('ALICE.D', 'ALICE.VJ_n_total', 'ALICE.p_value',
              'ALICE.p_adjust', 'ALICE.log_p_value'))
 
     clonoset(TCRgrObject) <- DT
@@ -259,8 +259,8 @@ ALICE_pipeline <- function(TCRgrObject, Q_val = 6.27, cores = 1, thres_counts = 
   # deletion of unnecessary columns
   DT <- subset(DT, select = -c(ind, Pgen_sum, Pgen_sum_corr))
 
-  setnames(DT, c('D', 'VJ_n_total', 'Pgen', 'p_val', 'p_adjust', 'log_p_val'),
-           c('ALICE.D', 'ALICE.VJ_n_total', 'ALICE.Pgen', 'ALICE.p_value',
+  setnames(DT, c('D', 'VJ_n_total', 'p_val', 'p_adjust', 'log_p_val'),
+           c('ALICE.D', 'ALICE.VJ_n_total', 'ALICE.p_value',
              'ALICE.p_adjust', 'ALICE.log_p_value'))
 
   clonoset(TCRgrObject) <- DT
